@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Invoice Generator</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <style>
+    body { background: #f1f5f9; }
+
+    .number-input::-webkit-outer-spin-button,
+    .number-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .number-input { -moz-appearance: textfield; }
+
+    .invoice-a4 {
+      width: 794px; min-height: 1123px; background: #ffffff;
+      margin: 0 auto; box-sizing: border-box; padding: 54px 50px 70px 50px;
+    }
+    .pdf-wrap { background: #fff; }
+    .pdf-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    .pdf-table thead th { background: #3f3f46; color: #fff; font-weight: 500; padding: 11px 16px; font-size: 13px; }
+    .pdf-table thead th:first-child { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+    .pdf-table thead th:last-child  { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+    .pdf-table tbody td { padding: 10px 16px 4px 16px; font-size: 13px; color: #222; vertical-align: top; }
+    .pdf-muted { color: #7a7a7a; }
+    .pdf-balance-box { background: #f3f4f6; border-radius: 6px; padding: 10px 18px; }
+
+    @media (max-width: 1100px) { .invoice-a4 { width: 100%; min-height: auto; } }
+
+    /* Steps */
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* Slide animation */
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(18px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slideInBack {
+      from { opacity: 0; transform: translateX(-18px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .step.active { animation: slideIn 0.22s ease; }
+    .step.active.back { animation: slideInBack 0.22s ease; }
+
+    /* Spinner */
+    .inv-num-wrap {
+      display: flex; align-items: stretch;
+      border: 1px solid #cbd5e1; border-radius: 0.75rem; overflow: hidden; background: #fff;
+    }
+    .inv-num-wrap:focus-within { box-shadow: 0 0 0 2px #cbd5e1; }
+    .inv-num-wrap input {
+      flex: 1; min-width: 0; border: none !important; outline: none !important;
+      box-shadow: none !important; border-radius: 0 !important;
+      padding: 0.5rem 0.75rem; font-size: 0.875rem; background: transparent; color: #1e293b;
+    }
+    .spinner-col { display: flex; flex-direction: column; border-left: 1px solid #e2e8f0; flex-shrink: 0; }
+    .spinner-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 28px; flex: 1; background: transparent; border: none;
+      cursor: pointer; color: #94a3b8; font-size: 8px; user-select: none;
+      transition: background 0.1s, color 0.1s; padding: 0; line-height: 1;
+    }
+    .spinner-btn:hover  { background: #f1f5f9; color: #334155; }
+    .spinner-btn:active { background: #e2e8f0; }
+    .spinner-btn + .spinner-btn { border-top: 1px solid #e2e8f0; }
+
+    /* Step indicator */
+    .step-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; transition: background 0.2s;
+    }
+    .step-dot.active { background: #334155; }
+  </style>
+</head>
+<body class="text-slate-800">
+<div class="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 xl:grid-cols-[400px_1fr] gap-6">
+
+  <!-- ── Left panel ── -->
+  <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 h-fit">
+
+    <!-- Step dots -->
+    <div class="flex items-center gap-2 mb-5">
+      <div class="step-dot active" id="dot1"></div>
+      <div class="step-dot"        id="dot2"></div>
+    </div>
+
+    <!-- ══ STEP 1: Business info ══ -->
+    <div class="step active" id="step1">
+      <h1 class="text-2xl font-bold mb-1">Your Details</h1>
+      <p class="text-sm text-slate-500 mb-5">Saved automatically — only fill this once.</p>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Seller name</label>
+          <input id="sellerName" type="text" placeholder="Enter seller name"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+          <p class="text-xs text-slate-500 mt-1">Saved in browser — loads automatically next time.</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">ABN number</label>
+          <input id="abnNumber" type="text" placeholder="e.g. 12 345 678 901"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">GST</label>
+          <select id="gstOption"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300 bg-white">
+            <option value="no" selected>No GST</option>
+            <option value="yes">Include GST (10%)</option>
+          </select>
+        </div>
+
+        <button id="nextBtn"
+          class="w-full mt-2 px-4 py-3 rounded-xl bg-slate-800 text-white font-semibold hover:bg-slate-700 transition">
+          Next →
+        </button>
+      </div>
+    </div>
+
+    <!-- ══ STEP 2: Invoice ══ -->
+    <div class="step" id="step2">
+      <div class="flex items-center gap-3 mb-1">
+        <button id="backBtn" class="text-slate-400 hover:text-slate-700 transition text-sm">← Back</button>
+        <h1 class="text-2xl font-bold">Create Invoice</h1>
+      </div>
+      <p class="text-sm text-slate-500 mb-5">Fill the amount and download.</p>
+
+      <div class="space-y-4">
+
+        <!-- Amount — primary, big -->
+        <div>
+          <label class="block text-sm font-medium mb-1">Target amount (A$)</label>
+          <input id="targetAmount" type="number" step="5" min="0" placeholder="e.g. 735"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300 text-lg font-semibold" />
+          <p class="text-xs text-slate-500 mt-1">Service quantities update automatically.</p>
+        </div>
+
+        <!-- Invoice # + Date -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium mb-1">Invoice #</label>
+            <div class="inv-num-wrap">
+              <input id="invoiceNumber" type="text" value="21" />
+              <div class="spinner-col">
+                <button class="spinner-btn" id="invUp"   title="Increase">▲</button>
+                <button class="spinner-btn" id="invDown" title="Decrease">▼</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Date</label>
+            <input id="invoiceDate" type="date"
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+        </div>
+
+        <div id="messageBox" class="hidden rounded-xl border px-3 py-2 text-sm"></div>
+
+        <!-- Download -->
+        <button id="downloadPdfBtn"
+          class="w-full px-4 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition text-base">
+          ↓ Download Invoice PDF
+        </button>
+
+        <hr class="my-1" />
+
+        <!-- Totals summary -->
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-slate-500">Total quantity</span>
+            <span id="totalQtyText" class="font-semibold">0</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Subtotal</span>
+            <span id="subtotalText" class="font-semibold">A$0.00</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">GST</span>
+            <span id="gstText" class="font-semibold">A$0.00</span>
+          </div>
+          <div class="flex justify-between text-base border-t border-slate-100 pt-2 mt-1">
+            <span class="font-semibold">Total amount</span>
+            <span id="totalAmountText" class="font-bold">A$0.00</span>
+          </div>
+        </div>
+
+        <hr class="my-1" />
+
+        <!-- Service quantities (secondary — below the fold) -->
+        <div>
+          <h2 class="font-semibold mb-3 text-slate-700">Service quantities</h2>
+          <div class="space-y-3">
+            <div class="grid grid-cols-[1fr_110px] gap-3 items-center">
+              <div>
+                <p class="font-medium">Used Car Detail</p>
+                <p class="text-sm text-slate-500">A$100.00</p>
+              </div>
+              <input id="qtyUsed" type="number" min="0" value="0"
+                class="number-input w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+            </div>
+            <div class="grid grid-cols-[1fr_110px] gap-3 items-center">
+              <div>
+                <p class="font-medium">New Car Detail</p>
+                <p class="text-sm text-slate-500">A$60.00</p>
+              </div>
+              <input id="qtyNew" type="number" min="0" value="0"
+                class="number-input w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+            </div>
+            <div class="grid grid-cols-[1fr_110px] gap-3 items-center">
+              <div>
+                <p class="font-medium">Service Car Wash</p>
+                <p class="text-sm text-slate-500">A$10.00</p>
+              </div>
+              <input id="qtyWash" type="number" min="0" value="0"
+                class="number-input w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+            </div>
+            <div class="grid grid-cols-[1fr_110px] gap-3 items-center">
+              <div>
+                <p class="font-medium">Car Polish</p>
+                <p class="text-sm text-slate-500">A$5.00</p>
+              </div>
+              <input id="qtyPolish" type="number" min="0" value="0"
+                class="number-input w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300" />
+            </div>
+          </div>
+        </div>
+
+        <button id="resetQtyBtn"
+          class="w-full px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-medium hover:bg-slate-200 transition text-sm">
+          Reset
+        </button>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: invoice preview ── -->
+  <div class="overflow-auto">
+    <div id="invoicePdf" class="pdf-wrap invoice-a4 shadow-lg border border-slate-200">
+      <div class="flex justify-between items-start">
+        <div>
+          <div id="previewSellerName" class="text-[17px] font-semibold leading-tight">Your Business Name</div>
+          <div class="text-[13px] leading-tight">ABN: <span id="previewAbnNumber">-</span></div>
+        </div>
+        <div class="text-right">
+          <div class="text-[50px] tracking-tight leading-none text-zinc-700">INVOICE</div>
+          <div class="mt-2 text-[16px] text-zinc-500"># <span id="previewInvoiceNumber">21</span></div>
+        </div>
+      </div>
+
+      <div class="mt-24 flex justify-between items-start">
+        <div>
+          <div class="pdf-muted text-[12px] mb-1">Bill To:</div>
+          <div class="text-[14px] font-semibold">MC Pty Ltd</div>
+        </div>
+        <div class="w-[390px]">
+          <div class="flex justify-end items-center gap-5 mb-3 text-[13px]">
+            <span class="pdf-muted">Date:</span>
+            <span id="previewInvoiceDate" class="text-zinc-700">-</span>
+          </div>
+          <div class="pdf-balance-box flex justify-between items-center">
+            <span class="text-[15px] font-semibold text-zinc-700">Balance Due:</span>
+            <span id="previewBalanceDue" class="text-[15px] font-semibold text-zinc-700">A$0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-16">
+        <table class="pdf-table">
+          <thead>
+            <tr>
+              <th style="width:62%;text-align:left;">Item</th>
+              <th style="width:12%;text-align:center;">Quantity</th>
+              <th style="width:13%;text-align:right;">Rate</th>
+              <th style="width:13%;text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="invoiceTableBody">
+            <tr><td style="padding:16px;color:#7a7a7a;" colspan="4">No services added yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-20 flex justify-end">
+        <div class="w-[280px] text-[13px] space-y-2">
+          <div class="flex justify-between">
+            <span class="pdf-muted">Subtotal:</span>
+            <span id="previewSubtotalAmount" class="text-zinc-700">A$0.00</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="pdf-muted">GST:</span>
+            <span id="previewGstAmount" class="text-zinc-700">A$0.00</span>
+          </div>
+          <div class="flex justify-between font-semibold pt-2 border-t border-slate-200">
+            <span class="pdf-muted">Total:</span>
+            <span id="previewTotalAmount" class="text-zinc-700">A$0.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pdfRenderRoot" style="position:fixed;left:-99999px;top:0;width:794px;background:#fff;z-index:-1;"></div>
+
+<script>
+  const SERVICES = [
+    { key:"used",   name:"Used Car Detail",  price:100, qtyId:"qtyUsed"   },
+    { key:"new",    name:"New Car Detail",    price:60,  qtyId:"qtyNew"    },
+    { key:"wash",   name:"Service Car Wash",  price:10,  qtyId:"qtyWash"   },
+    { key:"polish", name:"Car Polish",        price:5,   qtyId:"qtyPolish" }
+  ];
+
+  const STORAGE_KEY_PROFILES  = "invoice_generator_profiles_v5";
+  const STORAGE_KEY_LAST_USER = "invoice_generator_last_user_v5";
+  const STORAGE_KEY_INV_NUM   = "invoice_generator_inv_num_v6";
+
+  // DOM
+  const sellerNameInput    = document.getElementById("sellerName");
+  const abnNumberInput     = document.getElementById("abnNumber");
+  const invoiceNumberInput = document.getElementById("invoiceNumber");
+  const invoiceDateInput   = document.getElementById("invoiceDate");
+  const targetAmountInput  = document.getElementById("targetAmount");
+  const gstOptionInput     = document.getElementById("gstOption");
+  const messageBox         = document.getElementById("messageBox");
+
+  const totalQtyText       = document.getElementById("totalQtyText");
+  const subtotalText       = document.getElementById("subtotalText");
+  const gstText            = document.getElementById("gstText");
+  const totalAmountText    = document.getElementById("totalAmountText");
+
+  const previewSellerName     = document.getElementById("previewSellerName");
+  const previewAbnNumber      = document.getElementById("previewAbnNumber");
+  const previewInvoiceNumber  = document.getElementById("previewInvoiceNumber");
+  const previewInvoiceDate    = document.getElementById("previewInvoiceDate");
+  const previewBalanceDue     = document.getElementById("previewBalanceDue");
+  const previewSubtotalAmount = document.getElementById("previewSubtotalAmount");
+  const previewGstAmount      = document.getElementById("previewGstAmount");
+  const previewTotalAmount    = document.getElementById("previewTotalAmount");
+  const invoiceTableBody      = document.getElementById("invoiceTableBody");
+
+  // ── Steps ──
+  function goToStep(n, direction) {
+    document.getElementById("step1").classList.remove("active","back");
+    document.getElementById("step2").classList.remove("active","back");
+    document.getElementById("dot1").classList.toggle("active", n === 1);
+    document.getElementById("dot2").classList.toggle("active", n === 2);
+    const target = document.getElementById("step" + n);
+    if (direction === "back") target.classList.add("back");
+    target.classList.add("active");
+  }
+
+  // ── Helpers ──
+  function formatCurrency(n) {
+    return "A$" + Number(n).toLocaleString("en-AU", { minimumFractionDigits:2, maximumFractionDigits:2 });
+  }
+
+  function formatDateForPreview(v) {
+    if (!v) return "-";
+    const d = new Date(v + "T00:00:00");
+    if (isNaN(d.getTime())) return v;
+    return d.toLocaleDateString("en-AU", { day:"numeric", month:"short", year:"numeric" });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+  }
+
+  function showMessage(text, type="info") {
+    messageBox.textContent = text;
+    messageBox.className = "rounded-xl border px-3 py-2 text-sm";
+    if (type==="error")        messageBox.classList.add("border-red-200","bg-red-50","text-red-700");
+    else if (type==="success") messageBox.classList.add("border-green-200","bg-green-50","text-green-700");
+    else                       messageBox.classList.add("border-slate-200","bg-slate-50","text-slate-700");
+  }
+
+  // ── Profiles ──
+  function getProfiles() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY_PROFILES)) || {}; }
+    catch { return {}; }
+  }
+
+  function saveCurrentProfile() {
+    const seller = sellerNameInput.value.trim();
+    if (!seller) return;
+    const p = getProfiles();
+    p[seller.toLowerCase()] = { sellerName:seller, abnNumber:abnNumberInput.value.trim() };
+    localStorage.setItem(STORAGE_KEY_PROFILES, JSON.stringify(p));
+    localStorage.setItem(STORAGE_KEY_LAST_USER, seller.toLowerCase());
+  }
+
+  function loadLastProfile() {
+    const key = localStorage.getItem(STORAGE_KEY_LAST_USER);
+    if (!key) return;
+    const p = getProfiles()[key];
+    if (p) { sellerNameInput.value = p.sellerName||""; abnNumberInput.value = p.abnNumber||""; }
+  }
+
+  // ── Invoice number ──
+  function saveInvoiceNumber() { localStorage.setItem(STORAGE_KEY_INV_NUM, invoiceNumberInput.value.trim()||"1"); }
+  function loadInvoiceNumber() {
+    const s = localStorage.getItem(STORAGE_KEY_INV_NUM);
+    if (s !== null) invoiceNumberInput.value = s;
+  }
+  function spinInvoiceNumber(dir) {
+    const n = parseInt(invoiceNumberInput.value, 10);
+    invoiceNumberInput.value = isNaN(n) ? 1 : Math.max(1, n + dir);
+    updatePreview();
+  }
+
+  // ── Quantities ──
+  function getQty(s) { const v=parseInt(document.getElementById(s.qtyId).value,10); return isNaN(v)||v<0?0:v; }
+  function setQtyByKey(key, qty) { const s=SERVICES.find(s=>s.key===key); if(s) document.getElementById(s.qtyId).value=qty; }
+  function getInvoiceRows() { return SERVICES.map(s=>({...s,qty:getQty(s),amount:getQty(s)*s.price})); }
+  function calculateTotals(rows) {
+    const subtotal=rows.reduce((a,r)=>a+r.amount,0);
+    const gst=gstOptionInput.value==="yes"?subtotal*0.10:0;
+    return { totalQty:rows.reduce((a,r)=>a+r.qty,0), subtotal, gst, totalAmount:subtotal+gst };
+  }
+
+  function renderInvoiceTable(rows) {
+    const nz=rows.filter(r=>r.qty>0);
+    if(!nz.length){ invoiceTableBody.innerHTML=`<tr><td style="padding:16px;color:#7a7a7a;" colspan="4">No services added yet.</td></tr>`; return; }
+    invoiceTableBody.innerHTML=nz.map(r=>`
+      <tr>
+        <td style="font-weight:600;">${r.name}</td>
+        <td style="text-align:center;">${r.qty}</td>
+        <td style="text-align:right;">${formatCurrency(r.price)}</td>
+        <td style="text-align:right;">${formatCurrency(r.amount)}</td>
+      </tr>`).join("");
+  }
+
+  function updatePreview() {
+    saveCurrentProfile();
+    saveInvoiceNumber();
+    const rows=getInvoiceRows(), t=calculateTotals(rows);
+    previewSellerName.textContent    = sellerNameInput.value.trim()    || "Your Business Name";
+    previewAbnNumber.textContent     = abnNumberInput.value.trim()     || "-";
+    previewInvoiceNumber.textContent = invoiceNumberInput.value.trim() || "-";
+    previewInvoiceDate.textContent   = formatDateForPreview(invoiceDateInput.value);
+    previewBalanceDue.textContent    = formatCurrency(t.totalAmount);
+    previewSubtotalAmount.textContent= formatCurrency(t.subtotal);
+    previewGstAmount.textContent     = formatCurrency(t.gst);
+    previewTotalAmount.textContent   = formatCurrency(t.totalAmount);
+    totalQtyText.textContent    = t.totalQty;
+    subtotalText.textContent    = formatCurrency(t.subtotal);
+    gstText.textContent         = formatCurrency(t.gst);
+    totalAmountText.textContent = formatCurrency(t.totalAmount);
+    renderInvoiceTable(rows);
+  }
+
+  function resetQuantities() {
+    SERVICES.forEach(s=>{ document.getElementById(s.qtyId).value=0; });
+    targetAmountInput.value="";
+    updatePreview();
+    showMessage("Reset done.");
+  }
+
+  // ── Auto-fill ──
+  function findBestCombination(target) {
+    if (!Number.isFinite(target)||target<0) return null;
+    if (target===0) return {used:0,new:0,wash:0,polish:0,count:0};
+    if (target%5!==0) return null;
+    const dp=Array(target+1).fill(null);
+    dp[0]={count:0,used:0,new:0,wash:0,polish:0};
+    const coins=[{key:"used",value:100},{key:"new",value:60},{key:"wash",value:10},{key:"polish",value:5}];
+    for(let a=1;a<=target;a++){
+      let best=null;
+      for(const c of coins){
+        if(a-c.value>=0&&dp[a-c.value]){
+          const prev=dp[a-c.value];
+          const cand={count:prev.count+1,used:prev.used,new:prev.new,wash:prev.wash,polish:prev.polish};
+          cand[c.key]+=1;
+          if(!best||cand.count<best.count) best=cand;
+          else if(cand.count===best.count){
+            const av=[cand.used,cand.new,cand.wash,cand.polish],bv=[best.used,best.new,best.wash,best.polish];
+            for(let i=0;i<av.length;i++){if(av[i]>bv[i]){best=cand;break;}else if(av[i]<bv[i])break;}
+          }
+        }
+      }
+      dp[a]=best;
+    }
+    return dp[target];
+  }
+
+  function autoUpdateFromAmount() {
+    const raw=targetAmountInput.value.trim();
+    if(raw===""){SERVICES.forEach(s=>setQtyByKey(s.key,0));updatePreview();showMessage("Enter an amount to generate services.");return;}
+    const target=Number(raw);
+    if(!Number.isFinite(target)||target<0){showMessage("Please enter a valid amount.","error");return;}
+    if(target%5!==0){showMessage("Amount must be divisible by 5.","error");return;}
+    const result=findBestCombination(target);
+    if(!result){showMessage("No exact combination found.","error");return;}
+    setQtyByKey("used",result.used);setQtyByKey("new",result.new);
+    setQtyByKey("wash",result.wash);setQtyByKey("polish",result.polish);
+    updatePreview();
+    showMessage(`Services updated. Total quantity: ${result.count}.`,"success");
+  }
+
+  // ── PDF ──
+  function buildPdfHtml() {
+    const rows=getInvoiceRows().filter(r=>r.qty>0), t=calculateTotals(getInvoiceRows());
+    const rowsHtml=rows.length
+      ? rows.map(r=>`<tr>
+          <td style="padding:10px 16px 4px 16px;font-size:13px;color:#222;font-weight:600;vertical-align:top;">${escapeHtml(r.name)}</td>
+          <td style="padding:10px 16px 4px 16px;font-size:13px;color:#222;text-align:center;vertical-align:top;">${r.qty}</td>
+          <td style="padding:10px 16px 4px 16px;font-size:13px;color:#222;text-align:right;vertical-align:top;">${formatCurrency(r.price)}</td>
+          <td style="padding:10px 16px 4px 16px;font-size:13px;color:#222;text-align:right;vertical-align:top;">${formatCurrency(r.amount)}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="4" style="padding:16px;color:#7a7a7a;font-size:13px;">No services added yet.</td></tr>`;
+    return `<div style="width:794px;min-height:1123px;background:#ffffff;box-sizing:border-box;padding:54px 50px 70px 50px;font-family:Arial,Helvetica,sans-serif;color:#222;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:17px;font-weight:600;line-height:1.2;">${escapeHtml(sellerNameInput.value.trim()||"Your Business Name")}</div>
+          <div style="font-size:13px;line-height:1.2;">ABN: ${escapeHtml(abnNumberInput.value.trim()||"-")}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:50px;line-height:1;letter-spacing:-1px;color:#3f3f46;">INVOICE</div>
+          <div style="margin-top:8px;font-size:16px;color:#71717a;"># ${escapeHtml(invoiceNumberInput.value.trim()||"-")}</div>
+        </div>
+      </div>
+      <div style="margin-top:96px;display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:12px;color:#7a7a7a;margin-bottom:4px;">Bill To:</div>
+          <div style="font-size:14px;font-weight:600;">MC Pty Ltd</div>
+        </div>
+        <div style="width:390px;">
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:20px;margin-bottom:12px;font-size:13px;">
+            <span style="color:#7a7a7a;">Date:</span>
+            <span style="color:#3f3f46;">${escapeHtml(formatDateForPreview(invoiceDateInput.value))}</span>
+          </div>
+          <div style="background:#f3f4f6;border-radius:6px;padding:10px 18px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:15px;font-weight:600;color:#3f3f46;">Balance Due:</span>
+            <span style="font-size:15px;font-weight:600;color:#3f3f46;">${formatCurrency(t.totalAmount)}</span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:64px;">
+        <table style="width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;">
+          <thead><tr>
+            <th style="width:62%;text-align:left;background:#3f3f46;color:#fff;font-weight:500;padding:11px 16px;font-size:13px;border-top-left-radius:6px;border-bottom-left-radius:6px;">Item</th>
+            <th style="width:12%;text-align:center;background:#3f3f46;color:#fff;font-weight:500;padding:11px 16px;font-size:13px;">Quantity</th>
+            <th style="width:13%;text-align:right;background:#3f3f46;color:#fff;font-weight:500;padding:11px 16px;font-size:13px;">Rate</th>
+            <th style="width:13%;text-align:right;background:#3f3f46;color:#fff;font-weight:500;padding:11px 16px;font-size:13px;border-top-right-radius:6px;border-bottom-right-radius:6px;">Amount</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:80px;display:flex;justify-content:flex-end;">
+        <div style="width:280px;font-size:13px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#7a7a7a;">Subtotal:</span><span style="color:#3f3f46;">${formatCurrency(t.subtotal)}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span style="color:#7a7a7a;">GST:</span><span style="color:#3f3f46;">${formatCurrency(t.gst)}</span></div>
+          <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;font-weight:600;"><span style="color:#7a7a7a;">Total:</span><span style="color:#3f3f46;">${formatCurrency(t.totalAmount)}</span></div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  async function downloadPdf() {
+    if (!sellerNameInput.value.trim()) { showMessage("Seller name is missing. Go back and fill your details.","error"); return; }
+    if (!abnNumberInput.value.trim())  { showMessage("ABN is missing. Go back and fill your details.","error"); return; }
+    if (calculateTotals(getInvoiceRows()).totalAmount<=0) { showMessage("Please enter an amount first.","error"); return; }
+    const root=document.getElementById("pdfRenderRoot");
+    root.innerHTML=buildPdfHtml();
+    const element=root.firstElementChild;
+    await new Promise(r=>setTimeout(r,150));
+    const options={
+      margin:0, filename:`invoice-${invoiceNumberInput.value.trim()||"file"}.pdf`,
+      image:{type:"jpeg",quality:0.98},
+      html2canvas:{scale:2,useCORS:true,backgroundColor:"#ffffff",scrollX:0,scrollY:0,windowWidth:794,windowHeight:1123},
+      jsPDF:{unit:"pt",format:"a4",orientation:"portrait"}
+    };
+    try {
+      await html2pdf().set(options).from(element).save();
+      root.innerHTML=""; showMessage("PDF downloaded successfully.","success");
+    } catch(e) { root.innerHTML=""; showMessage("Could not generate PDF. Please try again.","error"); }
+  }
+
+  // ── Init ──
+  function setDefaultDate() {
+    const today=new Date();
+    invoiceDateInput.value=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().split("T")[0];
+  }
+
+  function attachEvents() {
+    [sellerNameInput,abnNumberInput].forEach(el=>{
+      el.addEventListener("input",updatePreview);
+      el.addEventListener("change",updatePreview);
+    });
+
+    invoiceDateInput.addEventListener("change",updatePreview);
+    invoiceNumberInput.addEventListener("input",updatePreview);
+    invoiceNumberInput.addEventListener("change",updatePreview);
+
+    document.getElementById("invUp").addEventListener("click",()=>spinInvoiceNumber(+1));
+    document.getElementById("invDown").addEventListener("click",()=>spinInvoiceNumber(-1));
+
+    SERVICES.forEach(s=>{
+      const el=document.getElementById(s.qtyId);
+      el.addEventListener("input",updatePreview);
+      el.addEventListener("change",updatePreview);
+    });
+
+    targetAmountInput.addEventListener("input",autoUpdateFromAmount);
+    targetAmountInput.addEventListener("change",autoUpdateFromAmount);
+    gstOptionInput.addEventListener("change",updatePreview);
+
+    document.getElementById("nextBtn").addEventListener("click",()=>{
+      saveCurrentProfile();
+      goToStep(2,"forward");
+    });
+
+    document.getElementById("backBtn").addEventListener("click",()=>goToStep(1,"back"));
+    document.getElementById("resetQtyBtn").addEventListener("click",resetQuantities);
+    document.getElementById("downloadPdfBtn").addEventListener("click",downloadPdf);
+  }
+
+  function init() {
+    setDefaultDate();
+    loadLastProfile();
+    loadInvoiceNumber();
+
+    // If we already have saved details, skip straight to step 2
+    const lastUser = localStorage.getItem(STORAGE_KEY_LAST_USER);
+    if (lastUser && getProfiles()[lastUser]) {
+      goToStep(2, "forward");
+    }
+
+    attachEvents();
+    updatePreview();
+  }
+
+  init();
+</script>
+</body>
+</html>
