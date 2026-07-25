@@ -331,8 +331,9 @@
   ];
 
   // Bumped storage version so old "MC" data doesn't bleed into the new SSSV setup.
-  const STORAGE_KEY_PROFILES  = "invoice_generator_profiles_sssv_v1";
-  const STORAGE_KEY_LAST_USER = "invoice_generator_last_user_sssv_v1";
+  const STORAGE_KEY_PROFILES  = "invoice_generator_profiles_v5";
+  const STORAGE_KEY_LAST_USER = "invoice_generator_last_user_v5";
+  const STORAGE_KEY_INV_NUM_LEGACY = "invoice_generator_inv_num_v6"; // used before per-profile invoice numbers existed
 
   // DOM
   const sellerNameInput    = document.getElementById("sellerName");
@@ -431,7 +432,13 @@
     if (p) {
       sellerNameInput.value = p.sellerName || "";
       abnNumberInput.value  = p.abnNumber || "";
-      if (p.invoiceNumber !== undefined) invoiceNumberInput.value = p.invoiceNumber;
+      if (p.invoiceNumber !== undefined) {
+        invoiceNumberInput.value = p.invoiceNumber;
+      } else {
+        // Existing user from before per-profile invoice numbers: carry over the old global counter.
+        const legacy = localStorage.getItem(STORAGE_KEY_INV_NUM_LEGACY);
+        if (legacy !== null) invoiceNumberInput.value = legacy;
+      }
     }
   }
 
@@ -440,7 +447,12 @@
     const key = currentProfileKey();
     if (!key) return;
     const p = getProfiles()[key];
-    if (p && p.invoiceNumber !== undefined) invoiceNumberInput.value = p.invoiceNumber;
+    if (p && p.invoiceNumber !== undefined) {
+      invoiceNumberInput.value = p.invoiceNumber;
+    } else {
+      const legacy = localStorage.getItem(STORAGE_KEY_INV_NUM_LEGACY);
+      if (legacy !== null) invoiceNumberInput.value = legacy;
+    }
   }
 
   function saveInvoiceNumberToProfile() {
@@ -684,9 +696,6 @@
     const lastUser = localStorage.getItem(STORAGE_KEY_LAST_USER);
     if (lastUser && getProfiles()[lastUser]) {
       goToStep(2, "forward");
-    } else {
-      // First run: seed a profile for SSSV Detailing so its invoice number is tracked from the start.
-      saveCurrentProfile({ invoiceNumber: invoiceNumberInput.value.trim() || "1" });
     }
 
     attachEvents();
